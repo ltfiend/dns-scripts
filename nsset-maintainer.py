@@ -10,7 +10,7 @@ import dns.query
 import dns.name
 import configparser
 
-keyringfile = "/home/peter/.tsigkeyring"
+keyringfile = "~/.tsigkeyring"
 
 config = configparser.ConfigParser()
 config.read(keyringfile)
