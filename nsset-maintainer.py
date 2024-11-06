@@ -3,11 +3,15 @@
 # Get IPs for all running ECSs in a cluster and add / remove them from the domains NSSet
 
 import boto3
-import dns
 import dns.tsigkeyring
 import dns.update
 import dns.query
 import dns.name
+import dns.rdata
+import dns.rdataclass
+import dns.rdatatype
+import dns.rdataset
+import dns.message
 import configparser
 import json
 import os
