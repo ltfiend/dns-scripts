@@ -23,6 +23,7 @@ TSIGKey = config["TSIG"]["key"]
 keyring = dns.tsigkeyring.from_text({TSIGKeyName: TSIGKey})
 
 debug = 0
+output = 1
 zone = config["CONFIG"]["zone"]
 cluster = config["CONFIG"]["cluster"]
 auth_server = config["CONFIG"]["auth_server"]
@@ -37,7 +38,7 @@ ec2 = boto3.client("ec2", region_name="us-east-1")
 
 # Process all the tasks in the cluster
 tasks = ecs.list_tasks(cluster=cluster)
-if debug >= 1:
+if debug >= 2:
     print(tasks)
 if len(tasks["taskArns"]) > 0:
     print("Processing tasks: ", len(tasks["taskArns"]))
@@ -86,7 +87,7 @@ missingNS = staticNS.difference(existingNS)
 addNS = addNS.union(missingNS)
 
 # Debugging stuff, delete later
-if debug >= 2:
+if output >= 1:
     print("*****")
     print("existing")
     print(existingNS)
@@ -107,15 +108,17 @@ if len(addNS) >= 1:
         for a in addNS:
             print(a.to_text())
             update.add(zone, 10800, "NS", a.to_text())
-    print(update)
     response = dns.query.tcp(update, auth_server)
-    print(response)
+    if debug >= 1:
+        print(update)
+        print(response)
 
 # Remove any unneeded entries
 if len(removeNS) >= 1:
     update = dns.update.UpdateMessage(zone, keyring=keyring)
     for r in removeNS:
         update.delete(zone, "NS", r.to_text())
-    print(update)
     response = dns.query.tcp(update, auth_server)
-    print(response)
+    if debug >= 1:
+        print(update)
+        print(response)
