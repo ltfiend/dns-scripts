@@ -9,24 +9,28 @@ import dns.update
 import dns.query
 import dns.name
 import configparser
+import json
+import os
 
-keyringfile = "~/.tsigkeyring"
+confFile = os.path.expanduser("~") + "/.nsset-maintainer.conf"
 
 config = configparser.ConfigParser()
-config.read(keyringfile)
+config.read_file(open(confFile))
 
 TSIGKeyName = config["TSIG"]["name"]
 TSIGKey = config["TSIG"]["key"]
 
+print(TSIGKeyName)
+
 keyring = dns.tsigkeyring.from_text({TSIGKeyName: TSIGKey})
 
-debug = 0
-zone = "<zone>"
-cluster = "<cluster_name>"
-auth_server = "192.168.1.3"
+debug = 2
+zone = config["CONFIG"]["zone"]
+cluster = config["CONFIG"]["cluster"]
+auth_server = config["CONFIG"]["auth_server"]
 
 # nameservers that shouldn't be removed
-staticnslist = ["ns1.example.net.", "ns2.example.net.", "ns3.example.net."]
+staticnslist = json.loads(config.get("CONFIG", "staticnslist"))
 
 ecsnslist = []
 
@@ -59,12 +63,16 @@ existingNS = nsset.answer[0].to_rdataset()
 # Build an NSSet of the ECS records
 ecsNS = dns.rdataset.from_text(dns.rdataclass.IN, dns.rdatatype.NS, 10800)
 for ns in ecsnslist:
-    newNSrr = dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.NS, ns + ".")
+    if not (ns.endswith(".")):
+        ns = ns + "."
+    newNSrr = dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.NS, ns)
     ecsNS.add(newNSrr)
 
 # Build a NSSet of the static records
 staticNS = dns.rdataset.from_text(dns.rdataclass.IN, dns.rdatatype.NS, 10800)
 for ns in staticnslist:
+    if not (ns.endswith(".")):
+        ns = ns + "."
     newNSrr = dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.NS, ns)
     staticNS.add(newNSrr)
 
@@ -74,6 +82,8 @@ removeNS = removeNS.difference(ecsNS)
 removeNS = removeNS.difference(staticNS)
 addNS = ecsNS.difference(existingNS)
 missingNS = staticNS.difference(existingNS)
+
+addNS = addNS.union(missingNS)
 
 # Debugging stuff, delete later
 if debug >= 2:
@@ -96,7 +106,7 @@ if len(addNS) >= 1:
     if len(addNS) > 0:
         for a in addNS:
             print(a.to_text())
-            update.add(zone, 10800, "NS", a.to_text() + ".")
+            update.add(zone, 10800, "NS", a.to_text())
     print(update)
     response = dns.query.tcp(update, auth_server)
     print(response)
