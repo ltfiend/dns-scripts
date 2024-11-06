@@ -20,11 +20,9 @@ config.read_file(open(confFile))
 TSIGKeyName = config["TSIG"]["name"]
 TSIGKey = config["TSIG"]["key"]
 
-print(TSIGKeyName)
-
 keyring = dns.tsigkeyring.from_text({TSIGKeyName: TSIGKey})
 
-debug = 2
+debug = 0
 zone = config["CONFIG"]["zone"]
 cluster = config["CONFIG"]["cluster"]
 auth_server = config["CONFIG"]["auth_server"]
@@ -44,15 +42,17 @@ if debug >= 1:
 if len(tasks["taskArns"]) > 0:
     print("Processing tasks: ", len(tasks["taskArns"]))
     taskDetails = ecs.describe_tasks(cluster=cluster, tasks=tasks["taskArns"])
-
-    interfaceId = taskDetails["tasks"][0]["attachments"][0]["details"][1]["value"]
-    if debug >= 1:
-        print(interfaceId)
-    interface = ec2.describe_network_interfaces(NetworkInterfaceIds=[interfaceId])
-
-    if debug >= 1:
-        print(interface["NetworkInterfaces"][0]["Association"]["PublicDnsName"])
-    ecsnslist.append(interface["NetworkInterfaces"][0]["Association"]["PublicDnsName"])
+    for taskItem in taskDetails["tasks"]:
+        if debug >= 3:
+            print(taskItem)
+        interfaceId = taskItem["attachments"][0]["details"][1]["value"]
+        interface = ec2.describe_network_interfaces(NetworkInterfaceIds=[interfaceId])
+        if debug >= 1:
+            print(interfaceId)
+            print(interface["NetworkInterfaces"][0]["Association"]["PublicDnsName"])
+        ecsnslist.append(
+            interface["NetworkInterfaces"][0]["Association"]["PublicDnsName"]
+        )
 
 # Get existing NSset from the auth server
 qname = dns.name.from_text(zone)
