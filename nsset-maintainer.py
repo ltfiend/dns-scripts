@@ -40,6 +40,34 @@ ecsnslist = []
 ecs = boto3.client("ecs", region_name="us-east-1")
 ec2 = boto3.client("ec2", region_name="us-east-1")
 
+
+def makeNSSet(nslist):
+    newNSSet = dns.rdataset.from_text(dns.rdataclass.IN, dns.rdatatype.NS, 10800)
+    for ns in nslist:
+        if not (ns.endswith(".")):
+            ns = ns + "."
+        newNSrr = dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.NS, ns)
+        newNSSet.add(newNSrr)
+    return newNSSet
+
+
+def sendOutput():
+    print("*****")
+    print("existing")
+    print(existingNS)
+    print("static")
+    print(staticNS)
+    print("ecs")
+    print(ecsNS)  #  ECS + Static
+    print("remove")
+    print(removeNS)
+    print("add")
+    print(addNS)  #  ECS + Static
+    print("missing")
+    print(missingNS)  #  ECS + Static
+    print("*****")
+
+
 # Process all the tasks in the cluster
 tasks = ecs.list_tasks(cluster=cluster)
 if debug >= 2:
@@ -65,21 +93,8 @@ query = dns.message.make_query(qname, dns.rdatatype.NS)
 nsset = dns.query.udp(query, auth_server)
 existingNS = nsset.answer[0].to_rdataset()
 
-# Build an NSSet of the ECS records
-ecsNS = dns.rdataset.from_text(dns.rdataclass.IN, dns.rdatatype.NS, 10800)
-for ns in ecsnslist:
-    if not (ns.endswith(".")):
-        ns = ns + "."
-    newNSrr = dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.NS, ns)
-    ecsNS.add(newNSrr)
-
-# Build a NSSet of the static records
-staticNS = dns.rdataset.from_text(dns.rdataclass.IN, dns.rdatatype.NS, 10800)
-for ns in staticnslist:
-    if not (ns.endswith(".")):
-        ns = ns + "."
-    newNSrr = dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.NS, ns)
-    staticNS.add(newNSrr)
+ecsNS = makeNSSet(ecsnslist)
+staticNS = makeNSSet(staticnslist)
 
 # Figure out what records need to be removed and added
 removeNS = existingNS
@@ -92,18 +107,7 @@ addNS = addNS.union(missingNS)
 
 # Debugging stuff, delete later
 if output >= 1:
-    print("*****")
-    print("existing")
-    print(existingNS)
-    print("ecs")
-    print(ecsNS)  #  ECS + Static
-    print("remove")
-    print(removeNS)
-    print("add")
-    print(addNS)  #  ECS + Static
-    print("missing")
-    print(missingNS)  #  ECS + Static
-    print("*****")
+    sendOutput()
 
 # Add any new entries.
 if len(addNS) >= 1:
