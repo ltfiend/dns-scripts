@@ -250,33 +250,47 @@ def calculate_ds_from_dnskey(domain: str, dnskey: DNSKEYRecord, digest_type: int
     return digest
 
 
-def check_dnssec_sync(domain: str) -> bool:
+def check_dnssec_sync(domain: str, terse: bool = False) -> bool:
     """
     Check DNSSEC DS/DNSKEY synchronization for a domain.
     Returns True if all checks pass, False otherwise.
+
+    Args:
+        domain: Domain name to check
+        terse: If True, only output failures and final result
     """
     domain = domain.lower().rstrip('.')
-    print(f"\n{'='*70}")
-    print(f"DNSSEC DS/DNSKEY Synchronization Check for: {domain}")
-    print(f"{'='*70}\n")
+    failures = []  # Collect failure messages for terse mode
+
+    if not terse:
+        print(f"\n{'='*70}")
+        print(f"DNSSEC DS/DNSKEY Synchronization Check for: {domain}")
+        print(f"{'='*70}\n")
 
     all_ok = True
 
     # Step 1: Get parent nameservers
-    print("[1] Finding parent zone nameservers...")
+    if not terse:
+        print("[1] Finding parent zone nameservers...")
     parent_ns = get_parent_nameservers(domain)
 
     if not parent_ns:
-        print("  ERROR: Could not find parent zone nameservers")
+        error_msg = f"  ERROR: Could not find parent zone nameservers for {domain}"
+        if terse:
+            failures.append(error_msg)
+        else:
+            print(error_msg)
         return False
 
-    print(f"  Found {len(parent_ns)} parent nameserver(s):")
-    for ns_hostname, ns_ip in parent_ns:
-        print(f"    - {ns_hostname} ({ns_ip})")
-    print()
+    if not terse:
+        print(f"  Found {len(parent_ns)} parent nameserver(s):")
+        for ns_hostname, ns_ip in parent_ns:
+            print(f"    - {ns_hostname} ({ns_ip})")
+        print()
 
     # Step 2: Query DS records from each parent nameserver
-    print("[2] Querying DS records from parent nameservers...")
+    if not terse:
+        print("[2] Querying DS records from parent nameservers...")
     all_ds_records = []
     ds_by_nameserver = defaultdict(list)
 
@@ -285,23 +299,29 @@ def check_dnssec_sync(domain: str) -> bool:
         all_ds_records.extend(ds_records)
         ds_by_nameserver[ns_hostname] = ds_records
 
-        if ds_records:
-            print(f"  {ns_hostname}:")
-            for ds in ds_records:
-                digest_type_name = {1: 'SHA-1', 2: 'SHA-256', 4: 'SHA-384'}.get(ds.digest_type, f'Type-{ds.digest_type}')
-                print(f"    KeyTag={ds.key_tag} Alg={ds.algorithm} DigestType={ds.digest_type}({digest_type_name})")
-                print(f"    Digest={ds.digest}")
-        else:
-            print(f"  {ns_hostname}: No DS records found")
+        if not terse:
+            if ds_records:
+                print(f"  {ns_hostname}:")
+                for ds in ds_records:
+                    digest_type_name = {1: 'SHA-1', 2: 'SHA-256', 4: 'SHA-384'}.get(ds.digest_type, f'Type-{ds.digest_type}')
+                    print(f"    KeyTag={ds.key_tag} Alg={ds.algorithm} DigestType={ds.digest_type}({digest_type_name})")
+                    print(f"    Digest={ds.digest}")
+            else:
+                print(f"  {ns_hostname}: No DS records found")
 
     if not all_ds_records:
-        print("\n  WARNING: No DS records found on any parent nameserver")
-        print("  This domain may not have DNSSEC enabled.")
+        warning_msg = f"  WARNING: No DS records found on any parent nameserver for {domain}"
+        if terse:
+            failures.append(warning_msg)
+        else:
+            print(f"\n{warning_msg}")
+            print("  This domain may not have DNSSEC enabled.")
         all_ok = False
 
     # Check consistency across parent nameservers
     if len(ds_by_nameserver) > 1:
-        print("\n  DS Record Consistency Check:")
+        if not terse:
+            print("\n  DS Record Consistency Check:")
         first_ns = list(ds_by_nameserver.keys())[0]
         first_ds_set = set((ds.key_tag, ds.algorithm, ds.digest_type, ds.digest)
                            for ds in ds_by_nameserver[first_ns])
@@ -312,29 +332,41 @@ def check_dnssec_sync(domain: str) -> bool:
                 continue
             ds_set = set((ds.key_tag, ds.algorithm, ds.digest_type, ds.digest) for ds in ds_list)
             if ds_set != first_ds_set:
-                print(f"  ✗ MISMATCH: {ns_hostname} has different DS records than {first_ns}")
+                failure_msg = f"  ✗ MISMATCH: {ns_hostname} has different DS records than {first_ns} for {domain}"
+                failures.append(failure_msg)
+                if not terse:
+                    print(f"  ✗ MISMATCH: {ns_hostname} has different DS records than {first_ns}")
                 all_consistent = False
                 all_ok = False
 
-        if all_consistent and all_ds_records:
+        if all_consistent and all_ds_records and not terse:
             print(f"  ✓ All parent nameservers have consistent DS records")
-    print()
+
+    if not terse:
+        print()
 
     # Step 3: Get child nameservers
-    print("[3] Finding child zone nameservers...")
+    if not terse:
+        print("[3] Finding child zone nameservers...")
     child_ns = get_child_nameservers(domain)
 
     if not child_ns:
-        print("  ERROR: Could not find child zone nameservers")
+        error_msg = f"  ERROR: Could not find child zone nameservers for {domain}"
+        if terse:
+            failures.append(error_msg)
+        else:
+            print(error_msg)
         return False
 
-    print(f"  Found {len(child_ns)} child nameserver(s):")
-    for ns_hostname, ns_ip in child_ns:
-        print(f"    - {ns_hostname} ({ns_ip})")
-    print()
+    if not terse:
+        print(f"  Found {len(child_ns)} child nameserver(s):")
+        for ns_hostname, ns_ip in child_ns:
+            print(f"    - {ns_hostname} ({ns_ip})")
+        print()
 
     # Step 4: Query DNSKEY records from each child nameserver
-    print("[4] Querying KSK DNSKEY records from child nameservers...")
+    if not terse:
+        print("[4] Querying KSK DNSKEY records from child nameservers...")
     all_dnskey_records = []
     dnskey_by_nameserver = defaultdict(list)
 
@@ -343,21 +375,27 @@ def check_dnssec_sync(domain: str) -> bool:
         all_dnskey_records.extend(dnskey_records)
         dnskey_by_nameserver[ns_hostname] = dnskey_records
 
-        if dnskey_records:
-            print(f"  {ns_hostname}:")
-            for dnskey in dnskey_records:
-                print(f"    KeyTag={dnskey.key_tag} Flags={dnskey.flags} Alg={dnskey.algorithm}")
-        else:
-            print(f"  {ns_hostname}: No KSK DNSKEY records found")
+        if not terse:
+            if dnskey_records:
+                print(f"  {ns_hostname}:")
+                for dnskey in dnskey_records:
+                    print(f"    KeyTag={dnskey.key_tag} Flags={dnskey.flags} Alg={dnskey.algorithm}")
+            else:
+                print(f"  {ns_hostname}: No KSK DNSKEY records found")
 
     if not all_dnskey_records:
-        print("\n  WARNING: No KSK DNSKEY records found on any child nameserver")
-        print("  This domain may not have DNSSEC enabled.")
+        warning_msg = f"  WARNING: No KSK DNSKEY records found on any child nameserver for {domain}"
+        if terse:
+            failures.append(warning_msg)
+        else:
+            print(f"\n{warning_msg}")
+            print("  This domain may not have DNSSEC enabled.")
         all_ok = False
 
     # Check consistency across child nameservers
     if len(dnskey_by_nameserver) > 1:
-        print("\n  DNSKEY Record Consistency Check:")
+        if not terse:
+            print("\n  DNSKEY Record Consistency Check:")
         first_ns = list(dnskey_by_nameserver.keys())[0]
         first_dnskey_set = set((dk.key_tag, dk.algorithm, dk.public_key)
                                for dk in dnskey_by_nameserver[first_ns])
@@ -368,17 +406,23 @@ def check_dnssec_sync(domain: str) -> bool:
                 continue
             dnskey_set = set((dk.key_tag, dk.algorithm, dk.public_key) for dk in dnskey_list)
             if dnskey_set != first_dnskey_set:
-                print(f"  ✗ MISMATCH: {ns_hostname} has different DNSKEY records than {first_ns}")
+                failure_msg = f"  ✗ MISMATCH: {ns_hostname} has different DNSKEY records than {first_ns} for {domain}"
+                failures.append(failure_msg)
+                if not terse:
+                    print(f"  ✗ MISMATCH: {ns_hostname} has different DNSKEY records than {first_ns}")
                 all_consistent = False
                 all_ok = False
 
-        if all_consistent and all_dnskey_records:
+        if all_consistent and all_dnskey_records and not terse:
             print(f"  ✓ All child nameservers have consistent DNSKEY records")
-    print()
+
+    if not terse:
+        print()
 
     # Step 5: Compare DS and DNSKEY records
     if all_ds_records and all_dnskey_records:
-        print("[5] Verifying DS/DNSKEY synchronization...")
+        if not terse:
+            print("[5] Verifying DS/DNSKEY synchronization...")
 
         # Create unique sets for comparison
         unique_ds = {}
@@ -394,12 +438,16 @@ def check_dnssec_sync(domain: str) -> bool:
                 unique_dnskey[key] = dnskey
 
         # Check each DS record against DNSKEY records
-        print("\n  DS Record Validation:")
+        if not terse:
+            print("\n  DS Record Validation:")
         for (key_tag, algorithm, digest_type), ds in unique_ds.items():
             dnskey_key = (key_tag, algorithm)
 
             if dnskey_key not in unique_dnskey:
-                print(f"  ✗ DS record (KeyTag={key_tag}, Alg={algorithm}) has no matching DNSKEY")
+                failure_msg = f"  ✗ DS record (KeyTag={key_tag}, Alg={algorithm}) has no matching DNSKEY for {domain}"
+                failures.append(failure_msg)
+                if not terse:
+                    print(f"  ✗ DS record (KeyTag={key_tag}, Alg={algorithm}) has no matching DNSKEY")
                 all_ok = False
             else:
                 # Calculate DS from DNSKEY and compare
@@ -408,35 +456,59 @@ def check_dnssec_sync(domain: str) -> bool:
                     calculated_digest = calculate_ds_from_dnskey(domain, dnskey, digest_type)
 
                     if calculated_digest == ds.digest:
-                        digest_type_name = {1: 'SHA-1', 2: 'SHA-256', 4: 'SHA-384'}.get(digest_type, f'Type-{digest_type}')
-                        print(f"  ✓ DS (KeyTag={key_tag}, Alg={algorithm}, {digest_type_name}) matches DNSKEY")
+                        if not terse:
+                            digest_type_name = {1: 'SHA-1', 2: 'SHA-256', 4: 'SHA-384'}.get(digest_type, f'Type-{digest_type}')
+                            print(f"  ✓ DS (KeyTag={key_tag}, Alg={algorithm}, {digest_type_name}) matches DNSKEY")
                     else:
-                        print(f"  ✗ DS (KeyTag={key_tag}, Alg={algorithm}) MISMATCH:")
-                        print(f"    Published DS:  {ds.digest}")
-                        print(f"    Calculated DS: {calculated_digest}")
+                        failure_msg = f"  ✗ DS (KeyTag={key_tag}, Alg={algorithm}) MISMATCH for {domain}"
+                        failures.append(failure_msg)
+                        if not terse:
+                            print(f"  ✗ DS (KeyTag={key_tag}, Alg={algorithm}) MISMATCH:")
+                            print(f"    Published DS:  {ds.digest}")
+                            print(f"    Calculated DS: {calculated_digest}")
                         all_ok = False
                 except Exception as e:
-                    print(f"  ✗ Error calculating DS for KeyTag={key_tag}: {e}")
+                    failure_msg = f"  ✗ Error calculating DS for KeyTag={key_tag} for {domain}: {e}"
+                    failures.append(failure_msg)
+                    if not terse:
+                        print(f"  ✗ Error calculating DS for KeyTag={key_tag}: {e}")
                     all_ok = False
 
         # Check for DNSKEY records without DS records
-        print("\n  DNSKEY Coverage Check:")
+        if not terse:
+            print("\n  DNSKEY Coverage Check:")
         for (key_tag, algorithm), dnskey in unique_dnskey.items():
             has_ds = any((key_tag, algorithm, dt) in unique_ds for dt in [1, 2, 4])
 
             if not has_ds:
-                print(f"  ✗ DNSKEY (KeyTag={key_tag}, Alg={algorithm}) has no corresponding DS record")
+                failure_msg = f"  ✗ DNSKEY (KeyTag={key_tag}, Alg={algorithm}) has no corresponding DS record for {domain}"
+                failures.append(failure_msg)
+                if not terse:
+                    print(f"  ✗ DNSKEY (KeyTag={key_tag}, Alg={algorithm}) has no corresponding DS record")
                 all_ok = False
             else:
-                print(f"  ✓ DNSKEY (KeyTag={key_tag}, Alg={algorithm}) has corresponding DS record(s)")
+                if not terse:
+                    print(f"  ✓ DNSKEY (KeyTag={key_tag}, Alg={algorithm}) has corresponding DS record(s)")
 
     # Summary
-    print(f"\n{'='*70}")
-    if all_ok:
-        print("RESULT: DS/DNSKEY records are IN SYNC ✓")
+    if terse:
+        # In terse mode, output failures first, then the result
+        if failures:
+            for failure in failures:
+                print(failure)
+        # Always show the result in terse mode
+        if all_ok:
+            print(f"RESULT {domain}: IN SYNC ✓")
+        else:
+            print(f"RESULT {domain}: OUT OF SYNC ✗")
     else:
-        print("RESULT: DS/DNSKEY records are OUT OF SYNC ✗")
-    print(f"{'='*70}\n")
+        # Normal mode with full formatting
+        print(f"\n{'='*70}")
+        if all_ok:
+            print("RESULT: DS/DNSKEY records are IN SYNC ✓")
+        else:
+            print("RESULT: DS/DNSKEY records are OUT OF SYNC ✗")
+        print(f"{'='*70}\n")
 
     return all_ok
 
@@ -449,6 +521,8 @@ def main():
 Examples:
   %(prog)s example.com
   %(prog)s cloudflare.com
+  %(prog)s -f domains.txt
+  %(prog)s -f domains.txt -t
 
 This tool will:
   1. Query parent zone nameservers for DS records
@@ -459,19 +533,67 @@ This tool will:
   6. Report synchronization status
         """
     )
-    parser.add_argument('domain', help='Domain name to check (e.g., example.com)')
+    parser.add_argument('domain', nargs='?', help='Domain name to check (e.g., example.com)')
+    parser.add_argument('-f', '--file', help='File containing list of domains to check (one per line)')
+    parser.add_argument('-t', '--terse', action='store_true', help='Terse output mode (only show result and failures)')
 
     args = parser.parse_args()
 
-    # Basic domain validation
-    domain = args.domain.strip().lower()
-    if not domain or domain.startswith('.') or '..' in domain:
-        print(f"Error: Invalid domain name: {args.domain}", file=sys.stderr)
+    # Validate that either domain or file is provided, but not both
+    if args.domain and args.file:
+        print("Error: Cannot specify both domain and file", file=sys.stderr)
         sys.exit(1)
 
+    if not args.domain and not args.file:
+        print("Error: Must specify either a domain or a file with -f", file=sys.stderr)
+        parser.print_help()
+        sys.exit(1)
+
+    # Collect domains to check
+    domains = []
+
+    if args.file:
+        # Read domains from file
+        try:
+            with open(args.file, 'r') as f:
+                for line in f:
+                    domain = line.strip().lower()
+                    # Skip empty lines and comments
+                    if domain and not domain.startswith('#'):
+                        domains.append(domain)
+
+            if not domains:
+                print(f"Error: No valid domains found in {args.file}", file=sys.stderr)
+                sys.exit(1)
+        except FileNotFoundError:
+            print(f"Error: File not found: {args.file}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error reading file {args.file}: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # Single domain from command line
+        domain = args.domain.strip().lower()
+        if not domain or domain.startswith('.') or '..' in domain:
+            print(f"Error: Invalid domain name: {args.domain}", file=sys.stderr)
+            sys.exit(1)
+        domains.append(domain)
+
+    # Check each domain
     try:
-        success = check_dnssec_sync(domain)
-        sys.exit(0 if success else 1)
+        all_success = True
+        for domain in domains:
+            # Basic domain validation
+            if domain.startswith('.') or '..' in domain:
+                print(f"Error: Invalid domain name: {domain}", file=sys.stderr)
+                all_success = False
+                continue
+
+            success = check_dnssec_sync(domain, terse=args.terse)
+            if not success:
+                all_success = False
+
+        sys.exit(0 if all_success else 1)
     except KeyboardInterrupt:
         print("\nInterrupted by user")
         sys.exit(130)
