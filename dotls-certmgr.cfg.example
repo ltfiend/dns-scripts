@@ -1,0 +1,53 @@
+[global]
+certbot_bin = "/usr/bin/certbot"
+openssl_bin = "/usr/bin/openssl"
+lock_file = "/var/run/dotls-certmgr.lock"
+archive_dir = "/etc/letsencrypt/archive"
+log_file = "/var/log/dotls-certmgr.log"
+
+# Optional: runs after a successful rotation if per-cert reload_cmd isn't set
+default_reload_cmd = ["rndc", "reconfig"]
+
+[[certs]]
+name = "bind-dotls"
+domain = "ns1.example.com"
+email = "email@example.com"
+
+# These are what named.conf should reference
+cert_symlink = "/etc/bind/dotls/fullchain.pem"
+key_symlink  = "/etc/bind/dotls/privkey.pem"
+
+# Renew when below this remaining validity
+renew_if_less_than_days = 7
+
+# Optional: rotate on a schedule even if not near expiry (LetsEncrypt is ~90d)
+#!/usr/bin/env python3
+
+# force_renew_every_days = 60
+
+# Optional: make LE live dir stable if you want it explicitly
+cert_name = "bind-dotls"
+
+# Permissions on archived files (owner/group optional)
+cert_mode = "0644"
+key_mode  = "0640"
+owner = "root"
+group = "named"
+
+# Use certbot dns-rfc2136 plugin (example)
+certbot_args = [
+  "certonly",
+  "--non-interactive",
+  "--agree-tos",
+  "--preferred-challenges", "dns-01",
+  "--dns-rfc2136",
+  "--dns-rfc2136-credentials", "/etc/letsencrypt/rfc2136.ini",
+  "--dns-rfc2136-propagation-seconds", "30",
+  "--email", "{email}",
+  "--cert-name", "{cert_name}",
+  "-d", "{domain}",
+]
+
+# Optional: override reload per cert
+# reload_cmd = ["systemctl", "reload", "named"]
+
