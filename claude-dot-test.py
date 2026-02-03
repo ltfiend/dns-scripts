@@ -129,7 +129,41 @@ def format_cert_details(cert: dict, der_cert: bytes) -> list[str]:
     return lines
 
 
-def query_dot(server: str, domain: str, port: int = 853, qtype: int = 1) -> None:
+def format_cert_from_der(der_cert: bytes) -> list[str]:
+    """Extract and format certificate details from DER-encoded cert (no validation)."""
+    import hashlib
+    import subprocess
+    lines = []
+
+    try:
+        # Use OpenSSL to parse the cert without validation
+        from ssl import DER_cert_to_PEM_cert
+        pem = DER_cert_to_PEM_cert(der_cert)
+
+        # Use openssl to extract details
+        result = subprocess.run(
+            ['openssl', 'x509', '-noout', '-subject', '-issuer', '-dates', '-serial', '-ext', 'subjectAltName'],
+            input=pem,
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split('\n'):
+                if line:
+                    lines.append(f'  {line}')
+        else:
+            lines.append(f'  (openssl error: {result.stderr.strip()})')
+    except Exception as e:
+        lines.append(f'  (Could not parse certificate: {e})')
+
+    # Always show fingerprints
+    lines.append(f'  SHA-256: {hashlib.sha256(der_cert).hexdigest()}')
+    lines.append(f'  SHA-1:   {hashlib.sha1(der_cert).hexdigest()}')
+
+    return lines
+
+
+def query_dot(server: str, domain: str, port: int = 853, qtype: int = 1, insecure: bool = False) -> None:
     """Perform a DNS-over-TLS query and display results."""
     print(f'=== DNS-over-TLS Query ===')
     print(f'Server: {server}:{port}')
@@ -138,9 +172,49 @@ def query_dot(server: str, domain: str, port: int = 853, qtype: int = 1) -> None
     print()
 
     ctx = ssl.create_default_context()
+    cert_error = None
+    tls_sock = None
 
     sock = socket.create_connection((server, port), timeout=10)
-    with ctx.wrap_socket(sock, server_hostname=server) as tls_sock:
+
+    # First try with verification
+    try:
+        tls_sock = ctx.wrap_socket(sock, server_hostname=server)
+    except ssl.SSLCertVerificationError as e:
+        cert_error = e
+        print('--- Certificate Verification FAILED ---')
+        print(f'  Error: {e.verify_message}')
+        print(f'  Code:  {e.verify_code}')
+        print()
+
+        # Reconnect and try without verification to get cert details
+        sock = socket.create_connection((server, port), timeout=10)
+        ctx_insecure = ssl.create_default_context()
+        ctx_insecure.check_hostname = False
+        ctx_insecure.verify_mode = ssl.CERT_NONE
+        tls_sock = ctx_insecure.wrap_socket(sock, server_hostname=server)
+    except ssl.SSLError as e:
+        cert_error = e
+        print('--- TLS Error ---')
+        print(f'  Error: {e}')
+        print()
+
+        # Reconnect and try without verification
+        sock = socket.create_connection((server, port), timeout=10)
+        ctx_insecure = ssl.create_default_context()
+        ctx_insecure.check_hostname = False
+        ctx_insecure.verify_mode = ssl.CERT_NONE
+        try:
+            tls_sock = ctx_insecure.wrap_socket(sock, server_hostname=server)
+        except ssl.SSLError as e2:
+            print(f'  Cannot establish TLS connection: {e2}')
+            return
+
+    if not tls_sock:
+        print('ERROR: Could not establish TLS connection')
+        return
+
+    with tls_sock:
         # TLS info
         print('--- TLS Connection ---')
         print(f'  Protocol: {tls_sock.version()}')
@@ -148,24 +222,28 @@ def query_dot(server: str, domain: str, port: int = 853, qtype: int = 1) -> None
         if cipher:
             print(f'  Cipher:   {cipher[0]}')
             print(f'  Bits:     {cipher[2]}')
+        if cert_error:
+            print(f'  Verified: NO')
+        else:
+            print(f'  Verified: YES')
         print()
 
         # Certificate details
         print('--- Certificate ---')
         cert = tls_sock.getpeercert()
         der_cert = tls_sock.getpeercert(binary_form=True)
+
         if cert and der_cert:
+            # Full cert info available (verification passed)
             for line in format_cert_details(cert, der_cert):
+                print(line)
+        elif der_cert:
+            # Only DER available (verification failed, need to parse manually)
+            for line in format_cert_from_der(der_cert):
                 print(line)
         else:
             print('  No certificate available')
         print()
-
-        # Certificate chain
-        try:
-            chain = tls_sock.get_channel_binding()
-        except Exception:
-            pass
 
         # Send DNS query
         query = build_dns_query(domain, qtype)
@@ -197,10 +275,11 @@ def main():
     parser.add_argument('domain', nargs='?', default='devries.tv', help='Domain to query (default: devries.tv)')
     parser.add_argument('-p', '--port', type=int, default=853, help='Port (default: 853)')
     parser.add_argument('-t', '--type', choices=['A', 'AAAA'], default='A', help='Query type (default: A)')
+    parser.add_argument('-k', '--insecure', action='store_true', help='Continue despite certificate errors')
     args = parser.parse_args()
 
     qtype = 1 if args.type == 'A' else 28
-    query_dot(args.server, args.domain, args.port, qtype)
+    query_dot(args.server, args.domain, args.port, qtype, args.insecure)
 
 
 if __name__ == '__main__':

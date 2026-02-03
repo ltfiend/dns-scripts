@@ -18,7 +18,8 @@ import requests
 
 requests.packages.urllib3.util.connection.HAS_IPV6 = False
 
-confFile = os.path.expanduser("~") + "/.nsset-maintainer.conf"
+# confFile = os.path.expanduser("~") + "/tmp/nsset-maintainer.conf"
+confFile = "/tmp/nsset-maintainer.conf"
 
 config = configparser.ConfigParser()
 config.read_file(open(confFile))
