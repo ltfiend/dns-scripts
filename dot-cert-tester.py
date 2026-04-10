@@ -163,15 +163,21 @@ def format_cert_from_der(der_cert: bytes) -> list[str]:
     return lines
 
 
-def query_dot(server: str, domain: str, port: int = 853, qtype: int = 1, insecure: bool = False) -> None:
+def query_dot(server: str, domain: str, port: int = 853, qtype: int = 1, insecure: bool = False, cafile: str | None = None, capath: str | None = None) -> None:
     """Perform a DNS-over-TLS query and display results."""
     print(f'=== DNS-over-TLS Query ===')
     print(f'Server: {server}:{port}')
     print(f'Domain: {domain}')
     print(f'Type:   {"A" if qtype == 1 else "AAAA" if qtype == 28 else str(qtype)}')
+    if cafile or capath:
+        print(f'CA:     {cafile or capath}')
     print()
 
-    ctx = ssl.create_default_context()
+    try:
+        ctx = ssl.create_default_context(cafile=cafile, capath=capath)
+    except (FileNotFoundError, ssl.SSLError) as e:
+        print(f'ERROR: Could not load CA from {cafile or capath}: {e}')
+        return
     cert_error = None
     tls_sock = None
 
@@ -276,10 +282,12 @@ def main():
     parser.add_argument('-p', '--port', type=int, default=853, help='Port (default: 853)')
     parser.add_argument('-t', '--type', choices=['A', 'AAAA'], default='A', help='Query type (default: A)')
     parser.add_argument('-k', '--insecure', action='store_true', help='Continue despite certificate errors')
+    parser.add_argument('--cafile', help='Path to an alternative CA bundle (PEM) for verification')
+    parser.add_argument('--capath', help='Path to a directory of hashed CA certs for verification')
     args = parser.parse_args()
 
     qtype = 1 if args.type == 'A' else 28
-    query_dot(args.server, args.domain, args.port, qtype, args.insecure)
+    query_dot(args.server, args.domain, args.port, qtype, args.insecure, args.cafile, args.capath)
 
 
 if __name__ == '__main__':
